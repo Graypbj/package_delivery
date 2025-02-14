@@ -1,7 +1,7 @@
 class HashTable:
 
     # Create empty bucket list
-    def __init__(self, size=10):
+    def __init__(self, size=41):
         self.size = size
         self.hash_table = self.create_buckets()
 
