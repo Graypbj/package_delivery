@@ -5,6 +5,13 @@
 import csv
 import datetime
 from hashtable import HashTable
+from package import Package
+
+# Constants
+TRUCK_SPEED = 18
+HUB_ADDRESS = "4001 S 700 E"
+CORRECTED_ADDRESS = "410 S State St"
+CORRECTION_TIME = datetime.time(10, 20)
 
 # Read the distance file
 with open("CSV/distances.csv") as dist:
@@ -24,22 +31,60 @@ with open("CSV/packages.csv") as pack:
 
 # Create package objects from the CSV file
 # After packages are objects, place them into a hash table
-def load_package_data(filename, package_hash_table):
-    with open(filename) as package_info:
-        package_data = csv.reader(package_info)
-        for package in package_data:
-            package_id = int(package[0])
-            package_address = package[1]
-            package_city = package[2]
-            package_state = package[3]
-            package_zip_code = package[4]
-            package_deadline = package[5]
-            package_weight = package[6]
-            package_status = "At Hub"
+def load_package_data(filename="CSV/packages.csv"):
+    package_hash_table = HashTable()
+    try:
+        with open(filename, "r", encoding="utf-8") as package_info:
+            package_data = csv.reader(package_info)
+            next(package_data)  # Skip the header row
+            for package in package_data:
+                try:
+                    package_id = int(package[0])
+                    package_address = package[1]
+                    package_city = package[2]
+                    package_state = package[3]
+                    package_zip_code = package[4]
+                    package_deadline = package[5]
+                    package_weight = package[6]
+                    notes = package[7] if len(package) > 7 else ""  # Handle missing notes
 
-            p = package(package_id, package_address, package_city, package_state, package_zip_code, package_deadline, package_weight, package_status)
+                    # Parse deadline
+                    if package_deadline.upper() == "EOD":
+                        deadline_time = datetime.time(17, 0)  # 5:00 PM
+                    else:
+                        deadline_time = datetime.datetime.strptime(package_deadline, "%I:%M %p").time()
 
-            package_hash_table.set_val(package_id, p)
+                    # Parse notes
+                    truck_restriction = None
+                    delivery_group = None
+                    delayed_until = None
+
+                    if "truck 2" in notes.lower():
+                        truck_restriction = "truck 2"
+
+                    if "must be delivered with" in notes.lower():
+                        # Extract package IDs from the notes
+                        delivery_group_str = notes.split("with ")[1]
+                        delivery_group = [pid.strip() for pid in delivery_group_str.split(",")]
+
+                    if "delayed on flight" in notes.lower():
+                        delayed_time_str = notes.split("until ")[1].strip()
+                        try:
+                            delayed_until = datetime.datetime.strptime(delayed_time_str, "%I:%M %p").time()
+                        except ValueError:
+                            print(f"Warning: Invalid delayed time format for package {package_id}: {delayed_time_str}")
+
+                    p = Package(package_id, package_address, package_city, package_state, package_zip_code, deadline_time, package_weight, notes, delayed_until=delayed_until, truck_restriction=truck_restriction, delivery_group=delivery_group)
+
+                    package_hash_table.set_val(package_id, p)
+                except ValueError as ve:
+                    print(f"Error parsing package data for package {package[0]}: {ve}")
+    except FileNotFoundError:
+        print(f"Error: Package file '{filename}' not found.")
+    except Exception as e:
+        print(f"Error: An error occurred while loading package data from '{filename}': {e}")
+
+    return package_hash_table
 
 def load_address_data(filename="CSV/addresses.csv"):
     address_to_index = {}
@@ -67,6 +112,10 @@ def load_address_data(filename="CSV/addresses.csv"):
         print(f"Error: Address file '{filename}' not found.")
     except Exception as e:
         print(f"Error: An error occurred while loading address data from '{filename}': {e}")
+    
+    return address_to_index
+
+
 
 def get_address_index(address, address_data):
     if address in address_data:
@@ -111,6 +160,37 @@ def assign_packages_to_trucks(package_hash_table, truck1, truck2, truck3, curren
                 return False
 
         return True
+    
+    for key in package_hash_table.hash_table:
+        if key is not None:
+            for package_id, package in enumerate(key):
+                package_data = package_hash_table.get_val(package_id)
+                if package_data != "No record found":
+                    if package_data.delivery_group and len(truck1) < 16:
+                        if can_add_to_truck(package_data.package_id, "truck1", package_hash_table, current_time):
+                            truck1.append(package_data.package_id)
+    
+    for key in package_hash_table.hash_table:
+        if key is not None:
+            for package_id, package in enumerate(key):
+                package_data = package_hash_table.get_val(package_id)
+                if package_data != "No record found":
+                    if package_data.package_deadline != "EOD":
+                        if can_add_to_truck(package_data.package_id, "truck1", package_hash_table, current_time) and len(truck1) < 16:
+                            truck1.append(package_data.package_id)
+    
+    for key in package_hash_table.hash_table:
+        if key is not None:
+            for package_id, package in enumerate(key):
+                package_data = package_hash_table.get_val(package_id)
+                if package_data != "No record found":
+                    if package_data.package_id not in truck1 and package_data.package_id not in truck2 and package_data.package_id not in truck3:
+                        if can_add_to_truck(package_data.package_id, "truck1", package_hash_table, current_time) and len(truck1) < 16:
+                            truck1.append(package_data.package_id)
+                        elif can_add_to_truck(package_data.package_id, "truck2", package_hash_table, current_time) and len(truck2) < 16:
+                            truck2.append(package_data.package_id)
+                        elif can_add_to_truck(package_data.package_id, "truck3", package_hash_table, current_time) and len(truck3) < 16:
+                            truck3.append(package_data.package_id)
     
 
 
