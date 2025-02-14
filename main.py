@@ -114,10 +114,10 @@ def load_distance_data(filename="CSV/distances.csv"):
     return distance_matrix
 
 def get_address_index(address, address_data):
-    # Try exact match first
+    # Attempt exact match
     if address in address_data:
         return address_data[address]
-    # Attempt a correction: replace "Station" with "Sta"
+    # Attempt a correction: replace "Station" with "Sta" if needed
     corrected = address.replace("Station", "Sta")
     if corrected in address_data:
         return address_data[corrected]
@@ -137,6 +137,7 @@ def assign_packages_to_trucks(package_hash_table, truck1, truck2, truck3, curren
     truck1.clear()
     truck2.clear()
     truck3.clear()
+
     def can_add_to_truck(package, current_time):
         if not isinstance(package, Package):
             return False
@@ -146,46 +147,52 @@ def assign_packages_to_trucks(package_hash_table, truck1, truck2, truck3, curren
             if combined < delayed_time:
                 return False
         return True
+
     # Assign packages with truck restrictions to truck 2
     for bucket in package_hash_table.hash_table:
         for package_id, _ in bucket:
             package = package_hash_table.get_val(package_id)
-            if (package != "No record found" and 
-                package.truck_restriction == "truck 2" and 
-                can_add_to_truck(package, current_time) and 
-                len(truck2) < 16):
+            if (package != "No record found"
+                and package.truck_restriction == "truck 2"
+                and can_add_to_truck(package, current_time)
+                and len(truck2) < 16):
                 truck2.append(package.package_id)
+
     # Assign packages that must be delivered together (simplified)
     for bucket in package_hash_table.hash_table:
         for package_id, _ in bucket:
             package = package_hash_table.get_val(package_id)
-            if (package != "No record found" and 
-                package.delivery_group and 
-                can_add_to_truck(package, current_time) and 
-                len(truck1) < 16):
+            if (package != "No record found"
+                and package.delivery_group
+                and can_add_to_truck(package, current_time)
+                and len(truck1) < 16):
+                # Add all packages in the delivery group to truck1
                 for dep_package_id in package.delivery_group:
                     dep_package = package_hash_table.get_val(dep_package_id)
-                    if (dep_package != "No record found" and 
-                        can_add_to_truck(dep_package, current_time) and 
-                        len(truck1) < 16):
+                    if (dep_package != "No record found"
+                        and can_add_to_truck(dep_package, current_time)
+                        and len(truck1) < 16):
                         truck1.append(dep_package.package_id)
+
     # Assign packages with deadlines to truck 1
     for bucket in package_hash_table.hash_table:
         for package_id, _ in bucket:
             package = package_hash_table.get_val(package_id)
-            if (package != "No record found" and 
-                package.package_deadline != datetime.time(17, 0) and 
-                can_add_to_truck(package, current_time) and 
-                len(truck1) < 16):
+            # For EOD, we use 5:00 PM. So any package NOT 5:00 PM has a real deadline
+            if (package != "No record found"
+                and package.package_deadline != datetime.time(17, 0)
+                and can_add_to_truck(package, current_time)
+                and len(truck1) < 16):
                 truck1.append(package.package_id)
-    # Fill the remaining capacity of the trucks
+
+    # Fill remaining capacity of trucks
     for bucket in package_hash_table.hash_table:
         for package_id, _ in bucket:
             package = package_hash_table.get_val(package_id)
-            if (package != "No record found" and 
-                package.package_id not in truck1 and 
-                package.package_id not in truck2 and 
-                package.package_id not in truck3):
+            if (package != "No record found"
+                and package.package_id not in truck1
+                and package.package_id not in truck2
+                and package.package_id not in truck3):
                 if can_add_to_truck(package, current_time) and len(truck1) < 16:
                     truck1.append(package.package_id)
                 elif can_add_to_truck(package, current_time) and len(truck2) < 16:
@@ -209,10 +216,12 @@ def nearest_neighbor_algorithm(truck_packages, address_data, package_hash_table,
     route = [start_address_index]
     unvisited_packages = set(truck_packages)
     current_location_index = start_address_index
+
     while unvisited_packages:
         nearest_location = None
         min_distance = float('inf')
         nearest_package = None
+
         for package_id in list(unvisited_packages):
             package = package_hash_table.get_val(package_id)
             if package == "No record found":
@@ -220,19 +229,20 @@ def nearest_neighbor_algorithm(truck_packages, address_data, package_hash_table,
             address = package.package_address
             location_index = get_address_index(address, address_data)
             if location_index is None:
-                print(f"Warning: Address '{address}' not found in address data.")
                 continue
             distance = dist_between(current_location_index, location_index, dist_csv)
             if distance < min_distance:
                 min_distance = distance
                 nearest_location = location_index
                 nearest_package = package_id
+
         if nearest_location is not None:
             route.append(nearest_location)
             unvisited_packages.remove(nearest_package)
             current_location_index = nearest_location
         else:
             break
+
     route.append(start_address_index)
     return route
 
@@ -240,14 +250,18 @@ def deliver_packages(route, truck_id, package_hash_table, address_data, dist_csv
     updated_time = current_time
     updated_mileage = total_mileage
     delivered_packages = set()
+
     for i in range(len(route) - 1):
         from_location_index = route[i]
         to_location_index = route[i + 1]
+
         distance = dist_between(from_location_index, to_location_index, dist_csv)
         travel_time = datetime.timedelta(hours=distance / TRUCK_SPEED)
         updated_datetime = datetime.datetime.combine(datetime.date.today(), updated_time) + travel_time
         updated_time = updated_datetime.time()
         updated_mileage += distance
+
+        # Deliver packages at the destination
         for bucket in package_hash_table.hash_table:
             for package_id, _ in bucket:
                 package = package_hash_table.get_val(package_id)
@@ -260,61 +274,94 @@ def deliver_packages(route, truck_id, package_hash_table, address_data, dist_csv
                         package_hash_table.set_val(package.package_id, package)
                         print(f"Truck {truck_id}: Delivered package {package.package_id} to {address} at {updated_time}")
                         delivered_packages.add(package_id)
-                        break
+                        # Once delivered, continue searching other packages for same location
     return updated_time, updated_mileage
 
-def get_package_status(package_id, package_hash_table, current_time):
+def get_package_status(package_id, package_hash_table, query_time):
     package = package_hash_table.get_val(package_id)
     if package == "No record found":
         return "Package not found"
-    if package.package_status == "At Hub":
-        return "At Hub"
-    elif package.package_status == "Delivered":
-        return f"Delivered at {package.delivery_time}"
-    else:
-        return "En Route"
 
-def display_truck_status(truck_id, truck_packages, package_hash_table, current_time):
-    print(f"Status for Truck {truck_id} at {current_time}:")
-    for package_id in truck_packages:
-        status = get_package_status(package_id, package_hash_table, current_time)
+    # If the package was delivered at or before query_time, show that
+    if package.package_status == "Delivered" and package.delivery_time is not None:
+        # Compare the delivery_time with the query_time
+        delivered_dt = datetime.datetime.combine(datetime.date.today(), package.delivery_time)
+        query_dt = datetime.datetime.combine(datetime.date.today(), query_time)
+        if delivered_dt <= query_dt:
+            return f"Delivered at {package.delivery_time}"
+        else:
+            # If the query time is before the actual delivery, then it's En Route
+            return "En Route"
+
+    return "En Route" if query_time >= datetime.time(8, 0) else "At Hub"
+
+def display_truck_status(truck_id, truck_packages, package_hash_table, query_time):
+    """
+    Print the status of each package on a given truck at a specified time.
+    """
+    print(f"\nStatus for Truck {truck_id} at {query_time}:")
+    for package_id in sorted(truck_packages):
+        status = get_package_status(package_id, package_hash_table, query_time)
         print(f"  Package {package_id}: {status}")
+
+def display_all_trucks_status(truck1, truck2, truck3, package_hash_table, query_time):
+    """
+    Print the status of all packages on each truck at a specified time.
+    """
+    display_truck_status(1, truck1, package_hash_table, query_time)
+    display_truck_status(2, truck2, package_hash_table, query_time)
+    display_truck_status(3, truck3, package_hash_table, query_time)
 
 def user_interface(package_hash_table, address_data, dist_csv, total_mileage, truck1, truck2, truck3):
     while True:
         print("\nWGUPS Routing Program")
-        print("1. View package status")
-        print("2. View truck status at a specific time")
-        print("3. View total mileage")
-        print("4. Exit")
+        print("1. View package status at a specific time")
+        print("2. View truck status at a specific time (one truck)")
+        print("3. View total mileage (after all deliveries)")
+        print("4. View ALL trucks' statuses at a specific time")
+        print("5. Exit")
+
         choice = input("Enter your selection: ")
         if choice == "1":
             try:
                 package_id = int(input("Enter the package ID: "))
                 time_str = input("Enter the time (HH:MM AM/PM): ")
-                current_time = datetime.datetime.strptime(time_str, "%I:%M %p").time()
-                status = get_package_status(package_id, package_hash_table, current_time)
-                print(f"Package {package_id} status at {current_time}: {status}")
+                query_time = datetime.datetime.strptime(time_str, "%I:%M %p").time()
+                status = get_package_status(package_id, package_hash_table, query_time)
+                print(f"\nPackage {package_id} status at {query_time}: {status}")
             except ValueError:
                 print("Invalid input. Please enter a valid package ID and time.")
+
         elif choice == "2":
             try:
                 truck_id = int(input("Enter truck ID (1, 2, or 3): "))
                 time_str = input("Enter the time (HH:MM AM/PM): ")
-                current_time = datetime.datetime.strptime(time_str, "%I:%M %p").time()
+                query_time = datetime.datetime.strptime(time_str, "%I:%M %p").time()
                 if truck_id == 1:
-                    display_truck_status(truck_id, truck1, package_hash_table, current_time)
+                    display_truck_status(truck_id, truck1, package_hash_table, query_time)
                 elif truck_id == 2:
-                    display_truck_status(truck_id, truck2, package_hash_table, current_time)
+                    display_truck_status(truck_id, truck2, package_hash_table, query_time)
                 elif truck_id == 3:
-                    display_truck_status(truck_id, truck3, package_hash_table, current_time)
+                    display_truck_status(truck_id, truck3, package_hash_table, query_time)
                 else:
                     print("Invalid truck ID")
             except ValueError:
                 print("Invalid input. Please enter a valid truck ID and time.")
+
         elif choice == "3":
-            print(f"Total mileage traveled by all trucks: {total_mileage:.2f} miles")
+            # This shows total mileage after all deliveries have been simulated
+            print(f"\nTotal mileage traveled by all trucks (end of day): {total_mileage:.2f} miles")
+
         elif choice == "4":
+            # New option: show statuses for all trucks at once
+            try:
+                time_str = input("Enter the time (HH:MM AM/PM): ")
+                query_time = datetime.datetime.strptime(time_str, "%I:%M %p").time()
+                display_all_trucks_status(truck1, truck2, truck3, package_hash_table, query_time)
+            except ValueError:
+                print("Invalid time format. Please try again.")
+
+        elif choice == "5":
             break
         else:
             print("Invalid choice. Please enter a valid option.")
@@ -323,27 +370,46 @@ def main():
     address_data = load_address_data()
     package_hash_table = load_package_data()
     dist_csv = load_distance_data()
+
     truck1, truck2, truck3 = [], [], []
     current_time = datetime.time(8, 0)
     total_mileage = 0.0
+
+    # 1 Assign packages to trucks
     assign_packages_to_trucks(package_hash_table, truck1, truck2, truck3, current_time)
+
+    # 2 Get hub index
     hub_index = get_address_index(HUB_ADDRESS, address_data)
     if hub_index is None:
         print("Error: Hub address not found in address data.")
         return
-    # Update package 9's address if needed
+
+    # 3 Update address of package #9 if before correction time
     if current_time <= CORRECTION_TIME:
         update_package_address(9, CORRECTED_ADDRESS, package_hash_table)
-    truck_routes = {}
-    truck_routes[1] = nearest_neighbor_algorithm(truck1, address_data, package_hash_table, dist_csv, hub_index)
-    truck_routes[2] = nearest_neighbor_algorithm(truck2, address_data, package_hash_table, dist_csv, hub_index)
-    truck_routes[3] = nearest_neighbor_algorithm(truck3, address_data, package_hash_table, dist_csv, hub_index)
+
+    # 4 Build routes for each truck using nearest neighbor
+    truck_routes = {
+        1: nearest_neighbor_algorithm(truck1, address_data, package_hash_table, dist_csv, hub_index),
+        2: nearest_neighbor_algorithm(truck2, address_data, package_hash_table, dist_csv, hub_index),
+        3: nearest_neighbor_algorithm(truck3, address_data, package_hash_table, dist_csv, hub_index),
+    }
+
+    # 5 Deliver packages (simulate in sequence)
     for truck_id in range(1, 4):
-        updated_time, updated_mileage = deliver_packages(truck_routes[truck_id], truck_id,
-                                                         package_hash_table, address_data,
-                                                         dist_csv, current_time, total_mileage)
+        updated_time, updated_mileage = deliver_packages(
+            truck_routes[truck_id],
+            truck_id,
+            package_hash_table,
+            address_data,
+            dist_csv,
+            current_time,
+            total_mileage
+        )
         current_time = updated_time
         total_mileage = updated_mileage
+
+    # 6 Start the user interface
     user_interface(package_hash_table, address_data, dist_csv, total_mileage, truck1, truck2, truck3)
 
 if __name__ == "__main__":
