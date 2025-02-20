@@ -2,7 +2,7 @@ class Package:
     def __init__(self, package_id, package_address, package_city, package_state,
                  package_zip, package_deadline, package_weight, notes="",
                  package_status="At Hub", delivery_time=None, delayed_until=None,
-                 truck_restriction=None, delivery_group=None):
+                 truck_restriction=None, delivery_group=None, truck_id=None):
         self.package_id = package_id
         self.package_address = package_address
         self.package_city = package_city
@@ -16,6 +16,7 @@ class Package:
         self.delayed_until = delayed_until
         self.truck_restriction = truck_restriction
         self.delivery_group = delivery_group
+        self.truck_id = truck_id
 
     def __str__(self):
         return (f"Package ID: {self.package_id}, Address: {self.package_address}, "
