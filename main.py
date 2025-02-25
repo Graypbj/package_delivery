@@ -139,76 +139,29 @@ def update_package_address(package_id, new_address, package_hash_table):
         print(f"Warning: Package {package_id} not found in hash table.")
 
 # Based on restrictions, delivery time, and delays, this function assigns all packages to a truck.
-def assign_packages_to_trucks(package_hash_table, truck1, truck2, truck3, current_time):
+def assign_packages_to_trucks(package_hash_table, truck1, truck2, truck3):
     truck1.clear()
     truck2.clear()
     truck3.clear()
 
-    def can_add_to_truck(package, current_time):
-        if not isinstance(package, Package):
-            return False
-        if package.delayed_until:
-            combined = datetime.datetime.combine(datetime.date.today(), current_time)
-            delayed_time = datetime.datetime.combine(datetime.date.today(), package.delayed_until)
-            if combined < delayed_time:
-                return False
-        return True
+    truck1_packages = {15, 14, 16, 13, 20, 19, 34, 35, 39}
+    truck2_packages = {1, 29, 30, 31, 37, 40, 3, 18, 36, 38, 2, 4, 5, 7, 8}
+    truck3_packages = {6, 25, 10, 11, 12, 17, 21, 22, 23, 24, 26, 27, 28, 32, 33, 9}
 
-    # Assign packages with truck restrictions to truck 2.
+    # Add packages to trucks
     for bucket in package_hash_table.hash_table:
         for package_id, _ in bucket:
-            package = package_hash_table.get_val(package_id)
-            if (package != "No record found"
-                    and package.truck_restriction == "truck 2"
-                    and can_add_to_truck(package, current_time)
-                    and len(truck2) < 16):
-                truck2.append(package.package_id)
-                package.truck_id = 2
-
-    # Assign packages that must be delivered together.
-    for bucket in package_hash_table.hash_table:
-        for package_id, _ in bucket:
-            package = package_hash_table.get_val(package_id)
-            if (package != "No record found"
-                    and package.delivery_group
-                    and can_add_to_truck(package, current_time)
-                    and len(truck1) < 16):
-                for dep_package_id in package.delivery_group:
-                    dep_package = package_hash_table.get_val(dep_package_id)
-                    if (dep_package != "No record found"
-                            and can_add_to_truck(dep_package, current_time)
-                            and len(truck1) < 16):
-                        truck1.append(dep_package.package_id)
-                        dep_package.truck_id = 1
-
-    # Assign packages with deadlines to truck 1
-    for bucket in package_hash_table.hash_table:
-        for package_id, _ in bucket:
-            package = package_hash_table.get_val(package_id)
-            if (package != "No record found"
-                    and package.package_deadline != datetime.time(17, 0)
-                    and can_add_to_truck(package, current_time)
-                    and len(truck1) < 16):
-                truck1.append(package.package_id)
-                package.truck_id = 1
-
-    # Fill remaining capacity of trucks
-    for bucket in package_hash_table.hash_table:
-        for package_id, _ in bucket:
-            package = package_hash_table.get_val(package_id)
-            if (package != "No record found"
-                    and package.package_id not in truck1
-                    and package.package_id not in truck2
-                    and package.package_id not in truck3):
-                if can_add_to_truck(package, current_time) and len(truck1) < 16:
-                    truck1.append(package.package_id)
-                    package.truck_id = 1
-                elif can_add_to_truck(package, current_time) and len(truck2) < 16:
-                    truck2.append(package.package_id)
-                    package.truck_id = 2
-                elif can_add_to_truck(package, current_time) and len(truck3) < 16:
-                    truck3.append(package.package_id)
-                    package.truck_id = 3
+            pkg = package_hash_table.get_val(package_id)
+            if pkg != "No record found" and isinstance(pkg, Package):
+                if package_id in truck1_packages:
+                    truck1.append(package_id)
+                    pkg.truck_id = 1
+                elif package_id in truck2_packages:
+                    truck2.append(package_id)
+                    pkg.truck_id = 2
+                elif package_id in truck3_packages:
+                    truck3.append(package_id)
+                    pkg.truck_id = 3
 
 # This function uses the address indexes found above to find the distance between two destinations
 def dist_between(addr1_index, addr2_index, dist_csv):
@@ -225,8 +178,10 @@ def dist_between(addr1_index, addr2_index, dist_csv):
 
 # This is my implimentation of the nearest neighbor algorithm
 def nearest_neighbor_algorithm(truck_packages, address_data, package_hash_table, dist_csv, start_address_index):
+    packages_without_9 = [pid for pid in truck_packages if pid != 9]
+    
     route = [start_address_index]
-    unvisited_packages = set(truck_packages)
+    unvisited_packages = set(packages_without_9)
     current_location_index = start_address_index
 
     while unvisited_packages:
@@ -235,10 +190,10 @@ def nearest_neighbor_algorithm(truck_packages, address_data, package_hash_table,
         nearest_package = None
 
         for package_id in list(unvisited_packages):
-            package = package_hash_table.get_val(package_id)
-            if package == "No record found":
+            pkg = package_hash_table.get_val(package_id)
+            if pkg == "No record found":
                 continue
-            address = package.package_address
+            address = pkg.package_address
             location_index = get_address_index(address, address_data)
             if location_index is None:
                 continue
@@ -255,8 +210,17 @@ def nearest_neighbor_algorithm(truck_packages, address_data, package_hash_table,
         else:
             break
 
+    # Add package 9 as the final stop before returning to the hub.
+    pkg9 = package_hash_table.get_val(9)
+    if pkg9 != "No record found":
+        package9_location_index = get_address_index(pkg9.package_address, address_data)
+        if package9_location_index is not None:
+            route.append(package9_location_index)
+    
+    # Finally, return to the hub.
     route.append(start_address_index)
     return route
+
 
 # This function simulates the delivery of all of the packages for a single truck
 def deliver_packages(route, truck_id, package_hash_table, address_data, dist_csv, current_time, total_mileage):
@@ -435,7 +399,7 @@ def main():
     total_mileage = 0.0
 
     # 1 Assign packages to trucks
-    assign_packages_to_trucks(package_hash_table, truck1, truck2, truck3, current_time)
+    assign_packages_to_trucks(package_hash_table, truck1, truck2, truck3)
 
     # 2 Get hub index
     hub_index = get_address_index(HUB_ADDRESS, address_data)
